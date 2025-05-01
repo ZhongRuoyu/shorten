@@ -1,5 +1,5 @@
 module github.com/ZhongRuoyu/shorten
 
-go 1.22
+go 1.24
 
-require github.com/mattn/go-sqlite3 v1.14.22
+require github.com/mattn/go-sqlite3 v1.14.28
