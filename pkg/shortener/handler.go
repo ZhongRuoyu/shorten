@@ -12,7 +12,7 @@ import (
 
 type handler struct {
 	config *Config
-	db     *database
+	db     *Database
 	logger *log.Logger
 }
 
@@ -80,7 +80,7 @@ func (h *handler) RedirectHandler(w http.ResponseWriter, req *http.Request) {
 
 	url, err := h.db.GetUrl(code)
 	if err != nil {
-		if err == errNotFound {
+		if err == ErrNotFound {
 			h.logger.Printf("%s %s %s [Not found]",
 				getClientHost(req), req.Method, req.URL)
 			http.Error(w, "Not found", http.StatusNotFound)
@@ -101,6 +101,35 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 	var customCode string
 	if req.URL.Path != "" && req.URL.Path != "/" {
 		customCode = req.URL.Path[1:]
+	}
+
+	if h.config.Auth {
+		username, password, ok := req.BasicAuth()
+		if !ok {
+			h.logger.Printf("%s %s %s [Missing credentials]",
+				getClientHost(req), req.Method, req.URL)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ok, err := h.db.CheckCredentials(username, password)
+		if err == ErrNotFound {
+			ok = false
+			err = nil
+		}
+		if err != nil {
+			h.logger.Printf("%s %s %s [Error checking credentials: %v]",
+				getClientHost(req), req.Method, req.URL, err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		if !ok {
+			h.logger.Printf("%s %s %s [Invalid credentials]",
+				getClientHost(req), req.Method, req.URL)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	clientHost := getClientHost(req)
@@ -141,7 +170,7 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 
 			err = h.db.CreateCode(url, code, clientHost)
 			if err != nil {
-				if err == errCodeAlreadyInUse {
+				if err == ErrCodeAlreadyInUse {
 					h.logger.Printf("%s %s %s [Attempt %d: %s: Code already in use]",
 						clientHost, req.Method, req.URL, attempt, code)
 				} else {
@@ -164,7 +193,7 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 	} else {
 		err = h.db.CreateCode(url, customCode, clientHost)
 		if err != nil {
-			if err == errCodeAlreadyInUse {
+			if err == ErrCodeAlreadyInUse {
 				h.logger.Printf("%s %s %s [Code already in use]",
 					clientHost, req.Method, req.URL)
 				http.Error(w, "Code already in use", http.StatusConflict)

@@ -2,29 +2,37 @@ package shortener
 
 import (
 	"database/sql"
+	"encoding/base64"
 	"errors"
 
 	"github.com/mattn/go-sqlite3"
 )
 
-type database struct {
+type Database struct {
 	db *sql.DB
 }
 
-var errNotFound = errors.New("database: not found")
-var errCodeAlreadyInUse = errors.New("database: code already in use")
+var ErrNotFound = errors.New("database: not found")
+var ErrUsernameAlreadyInUse = errors.New("database: username already in use")
+var ErrCodeAlreadyInUse = errors.New("database: code already in use")
 
-func newDatabase(dataSource string) (*database, error) {
+func NewDatabase(dataSource string) (*Database, error) {
 	db, err := sql.Open("sqlite3", dataSource)
 	if err != nil {
 		return nil, err
 	}
 
-	return &database{db: db}, nil
+	return &Database{db: db}, nil
 }
 
-func (d *database) Init() error {
+func (d *Database) Init() error {
 	_, err := d.db.Exec(`
+			CREATE TABLE IF NOT EXISTS Users(
+				username      TEXT PRIMARY KEY,
+				salt          TEXT NOT NULL,
+				password_hash TEXT NOT NULL
+			);
+
 			CREATE TABLE IF NOT EXISTS Urls(
 				code       TEXT PRIMARY KEY,
 				url        TEXT NOT NULL,
@@ -37,7 +45,102 @@ func (d *database) Init() error {
 	return err
 }
 
-func (d *database) GetUrl(code string) (string, error) {
+func (d *Database) CreateUser(username, password string) error {
+	salt, passwordHash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	saltBase64 := base64.StdEncoding.EncodeToString(salt)
+	passwordHashBase64 := base64.StdEncoding.EncodeToString(passwordHash)
+	_, err = d.db.Exec(`
+			INSERT INTO Users(username, salt, password_hash)
+			VALUES (?, ?, ?);
+		`, username, saltBase64, passwordHashBase64)
+	if err != nil {
+		sqliteErr, ok := err.(sqlite3.Error)
+		if ok {
+			if sqliteErr.Code == sqlite3.ErrConstraint {
+				return ErrUsernameAlreadyInUse
+			}
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (d *Database) CheckCredentials(username, password string) (bool, error) {
+	var saltBase64, passwordHashBase64 string
+
+	err := d.db.QueryRow(`
+			SELECT salt, password_hash
+			FROM Users
+			WHERE username = ?;
+		`, username).Scan(&saltBase64, &passwordHashBase64)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, ErrNotFound
+		}
+		return false, err
+	}
+
+	salt, err := base64.StdEncoding.DecodeString(saltBase64)
+	if err != nil {
+		return false, err
+	}
+	passwordHash, err := base64.StdEncoding.DecodeString(passwordHashBase64)
+	if err != nil {
+		return false, err
+	}
+
+	ok, err := checkPasswordHash(password, salt, passwordHash)
+	if err != nil {
+		return false, err
+	}
+
+	return ok, nil
+}
+
+func (d *Database) UpdateCredentials(username, password string) error {
+	salt, passwordHash, err := hashPassword(password)
+	if err != nil {
+		return err
+	}
+
+	saltBase64 := base64.StdEncoding.EncodeToString(salt)
+	passwordHashBase64 := base64.StdEncoding.EncodeToString(passwordHash)
+	_, err = d.db.Exec(`
+			UPDATE Users
+			SET salt = ?, password_hash = ?
+			WHERE username = ?;
+		`, saltBase64, passwordHashBase64, username)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (d *Database) DeleteUser(username string) error {
+	_, err := d.db.Exec(`
+			DELETE FROM Users
+			WHERE username = ?;
+		`, username)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (d *Database) GetUrl(code string) (string, error) {
 	var url string
 
 	err := d.db.QueryRow(`
@@ -47,7 +150,7 @@ func (d *database) GetUrl(code string) (string, error) {
 		`, code).Scan(&url)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", errNotFound
+			return "", ErrNotFound
 		}
 		return "", err
 	}
@@ -65,7 +168,7 @@ func (d *database) GetUrl(code string) (string, error) {
 	return url, nil
 }
 
-func (d *database) CreateCode(url string, code string, createdBy string) error {
+func (d *Database) CreateCode(url string, code string, createdBy string) error {
 	_, err := d.db.Exec(`
 			INSERT INTO Urls(code, url, created_at, created_by, hits, last_hit)
 			VALUES (?, ?, UNIXEPOCH(), ?, 0, NULL);
@@ -74,7 +177,7 @@ func (d *database) CreateCode(url string, code string, createdBy string) error {
 		sqliteErr, ok := err.(sqlite3.Error)
 		if ok {
 			if sqliteErr.Code == sqlite3.ErrConstraint {
-				return errCodeAlreadyInUse
+				return ErrCodeAlreadyInUse
 			}
 		}
 		return err

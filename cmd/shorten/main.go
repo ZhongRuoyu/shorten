@@ -11,6 +11,8 @@ import (
 )
 
 var (
+	auth = flag.Bool("auth", false,
+		"Enable authentication for URL shortening")
 	listenPort = flag.Int("listen-port", 8080,
 		"Port to listen for HTTP requests")
 	urlPrefix = flag.String("url-prefix", "http://localhost:8080/",
@@ -41,6 +43,7 @@ func loadConfig() *shortener.Config {
 	}
 
 	return &shortener.Config{
+		Auth:       *auth,
 		ListenPort: *listenPort,
 		UrlPrefix:  *urlPrefix,
 		MainPage:   *mainPage,

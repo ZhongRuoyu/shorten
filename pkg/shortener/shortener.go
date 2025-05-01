@@ -11,7 +11,7 @@ type Shortener struct {
 }
 
 func NewShortener(config *Config, logger *log.Logger) (*Shortener, error) {
-	db, err := newDatabase(config.SqliteDb)
+	db, err := NewDatabase(config.SqliteDb)
 	if err != nil {
 		return nil, fmt.Errorf("shortener: failed to create database: %v", err)
 	}
