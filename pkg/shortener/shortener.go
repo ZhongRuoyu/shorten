@@ -29,6 +29,13 @@ func NewShortener(config *Config, logger *log.Logger) (*Shortener, error) {
 		}}, nil
 }
 
+func (s *Shortener) Close() error {
+	if s.handler.db != nil {
+		return s.handler.db.db.Close()
+	}
+	return nil
+}
+
 func (s *Shortener) ListenAndServe() error {
 	return http.ListenAndServe(
 		fmt.Sprintf(":%d", s.handler.config.ListenPort), s.handler)

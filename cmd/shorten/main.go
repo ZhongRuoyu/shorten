@@ -66,6 +66,11 @@ func main() {
 	if err != nil {
 		logger.Fatalf("Failed to create shortener: %v", err)
 	}
+	defer func() {
+		if err := shortener.Close(); err != nil {
+			logger.Printf("Failed to cleanup: %v", err)
+		}
+	}()
 
 	logger.Println("Starting HTTP server")
 	logger.Fatal(shortener.ListenAndServe())
