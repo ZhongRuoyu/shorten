@@ -103,8 +103,11 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 		customCode = req.URL.Path[1:]
 	}
 
+	var username string
 	if h.config.Auth {
-		username, password, ok := req.BasicAuth()
+		var password string
+		var ok bool
+		username, password, ok = req.BasicAuth()
 		if !ok {
 			h.logger.Printf("%s %s %s [Missing credentials]",
 				getClientHost(req), req.Method, req.URL)
@@ -133,6 +136,10 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	clientHost := getClientHost(req)
+	createdBy := clientHost
+	if h.config.Auth {
+		createdBy = username
+	}
 
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -168,7 +175,7 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 				continue
 			}
 
-			err = h.db.CreateCode(url, code, clientHost)
+			err = h.db.CreateCode(url, code, createdBy)
 			if err != nil {
 				if err == ErrCodeAlreadyInUse {
 					h.logger.Printf("%s %s %s [Attempt %d: %s: Code already in use]",
@@ -191,7 +198,7 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	} else {
-		err = h.db.CreateCode(url, customCode, clientHost)
+		err = h.db.CreateCode(url, customCode, createdBy)
 		if err != nil {
 			if err == ErrCodeAlreadyInUse {
 				h.logger.Printf("%s %s %s [Code already in use]",
