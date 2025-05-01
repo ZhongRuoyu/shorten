@@ -1,8 +1,8 @@
 package shortener
 
 type Config struct {
-	ListenPort int
 	Auth       bool
+	ListenPort int
 	UrlPrefix  string
 	MainPage   string
 	CodeLength int
