@@ -82,6 +82,10 @@ func main() {
 		password := promptPassword(true)
 		err = db.CreateUser(username, password)
 		if err != nil {
+			if err == shortener.ErrUsernameAlreadyInUse {
+				fmt.Fprintln(os.Stderr, "User already exists")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "Error creating user: ", err)
 			os.Exit(1)
 		}
@@ -90,6 +94,10 @@ func main() {
 		password := promptPassword(false)
 		ok, err := db.CheckCredentials(username, password)
 		if err != nil {
+			if err == shortener.ErrNotFound {
+				fmt.Fprintln(os.Stderr, "User not found")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "Error checking credentials: ", err)
 			os.Exit(1)
 		}
@@ -102,6 +110,10 @@ func main() {
 		password := promptPassword(true)
 		err = db.UpdateCredentials(username, password)
 		if err != nil {
+			if err == shortener.ErrNotFound {
+				fmt.Fprintln(os.Stderr, "User not found")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "Error updating credentials: ", err)
 			os.Exit(1)
 		}
@@ -109,6 +121,10 @@ func main() {
 	case "delete":
 		err = db.DeleteUser(username)
 		if err != nil {
+			if err == shortener.ErrNotFound {
+				fmt.Fprintln(os.Stderr, "User not found")
+				os.Exit(1)
+			}
 			fmt.Fprintln(os.Stderr, "Error deleting user: ", err)
 			os.Exit(1)
 		}
