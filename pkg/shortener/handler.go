@@ -130,7 +130,7 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 
 	var code string
 	if customCode == "" {
-		for attempt := 0; attempt < 3; attempt++ {
+		for attempt := range 3 {
 			code, err = generateCode(h.config.CodeLength)
 			if err != nil {
 				h.logger.Printf("%s %s %s [Attempt %d: %s: %v]",
