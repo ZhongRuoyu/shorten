@@ -2,3 +2,4 @@
 access.log
 urls.db
 /shorten
+/shortenpw
