@@ -156,11 +156,10 @@ func (d *Database) GetUrl(code string) (string, error) {
 	}
 
 	_, err = d.db.Exec(`
-		UPDATE Urls
-		SET hits = hits + 1,
-				last_hit = UNIXEPOCH()
-		WHERE code = ?;
-	`, code)
+			UPDATE Urls
+			SET hits = hits + 1, last_hit = UNIXEPOCH()
+			WHERE code = ?;
+		`, code)
 	if err != nil {
 		return "", err
 	}
