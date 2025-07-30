@@ -4,7 +4,7 @@ go 1.24
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.28
-	golang.org/x/term v0.32.0
+	golang.org/x/term v0.33.0
 )
 
-require golang.org/x/sys v0.33.0 // indirect
+require golang.org/x/sys v0.34.0 // indirect
