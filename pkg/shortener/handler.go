@@ -16,6 +16,8 @@ type handler struct {
 	logger *log.Logger
 }
 
+const maxBodySize = 8192
+
 func getClientHost(req *http.Request) string {
 	remoteAddr := req.RemoteAddr
 	remoteHost, _, err := net.SplitHostPort(remoteAddr)
@@ -141,8 +143,15 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 		createdBy = username
 	}
 
+	req.Body = http.MaxBytesReader(w, req.Body, maxBodySize)
 	body, err := io.ReadAll(req.Body)
 	if err != nil {
+		if _, ok := err.(*http.MaxBytesError); ok {
+			h.logger.Printf("%s %s %s [Request body too large]",
+				clientHost, req.Method, req.URL)
+			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		h.logger.Printf("%s %s %s [%v]",
 			clientHost, req.Method, req.URL, err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
