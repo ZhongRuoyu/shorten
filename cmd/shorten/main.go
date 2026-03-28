@@ -55,7 +55,7 @@ func loadConfig() *shortener.Config {
 
 func main() {
 	config := loadConfig()
-	logFile, err := os.OpenFile(config.LogFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0755)
+	logFile, err := os.OpenFile(config.LogFile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0600)
 	if err != nil {
 		logger := log.New(os.Stderr, "", log.Ldate|log.Ltime|log.Lmicroseconds)
 		logger.Fatalf("Failed to open log file: %v", err)
