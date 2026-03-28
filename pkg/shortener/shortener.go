@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 )
 
 type Shortener struct {
@@ -37,6 +38,12 @@ func (s *Shortener) Close() error {
 }
 
 func (s *Shortener) ListenAndServe() error {
-	return http.ListenAndServe(
-		fmt.Sprintf(":%d", s.handler.config.ListenPort), s.handler)
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", s.handler.config.ListenPort),
+		Handler:      s.handler,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+	return server.ListenAndServe()
 }
