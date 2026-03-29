@@ -18,16 +18,22 @@ type handler struct {
 
 const maxBodySize = 8192
 
-func getClientHost(req *http.Request) string {
-	remoteAddr := req.RemoteAddr
+func getRemoteHost(remoteAddr string) string {
 	remoteHost, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		remoteHost = remoteAddr
+		return remoteAddr
+	}
+	return remoteHost
+}
+
+func (h *handler) getClientHost(req *http.Request) string {
+	if !h.config.TrustProxy {
+		return getRemoteHost(req.RemoteAddr)
 	}
 
 	xForwardedFor := req.Header.Get("X-Forwarded-For")
 	if xForwardedFor == "" {
-		return remoteHost
+		return getRemoteHost(req.RemoteAddr)
 	}
 
 	host := strings.TrimSpace(strings.Split(xForwardedFor, ",")[0])
@@ -35,7 +41,7 @@ func getClientHost(req *http.Request) string {
 		return host
 	}
 
-	return remoteHost
+	return getRemoteHost(req.RemoteAddr)
 }
 
 func isValidHttpUrl(input string) bool {
@@ -61,7 +67,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		h.CreateCodeHandler(w, req)
 	default:
 		h.logger.Printf("%s %s %s Method not allowed",
-			getClientHost(req), req.Method, req.URL)
+			h.getClientHost(req), req.Method, req.URL)
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		w.Write([]byte("Method not allowed"))
 	}
@@ -69,7 +75,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 func (h *handler) HomepageHandler(w http.ResponseWriter, req *http.Request) {
 	h.logger.Printf("%s %s %s",
-		getClientHost(req), req.Method, req.URL)
+		h.getClientHost(req), req.Method, req.URL)
 	if h.config.MainPage == "" {
 		fmt.Fprintf(w, "hello, world\n")
 	} else {
@@ -84,18 +90,18 @@ func (h *handler) RedirectHandler(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		if err == ErrNotFound {
 			h.logger.Printf("%s %s %s [Not found]",
-				getClientHost(req), req.Method, req.URL)
+				h.getClientHost(req), req.Method, req.URL)
 			http.Error(w, "Not found", http.StatusNotFound)
 		} else {
 			h.logger.Printf("%s %s %s [%v]",
-				getClientHost(req), req.Method, req.URL, err)
+				h.getClientHost(req), req.Method, req.URL, err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 		return
 	}
 
 	h.logger.Printf("%s %s %s => %s",
-		getClientHost(req), req.Method, req.URL, url)
+		h.getClientHost(req), req.Method, req.URL, url)
 	http.Redirect(w, req, url, http.StatusFound)
 }
 
@@ -112,7 +118,8 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 		username, password, ok = req.BasicAuth()
 		if !ok {
 			h.logger.Printf("%s %s %s [Missing credentials]",
-				getClientHost(req), req.Method, req.URL)
+				h.getClientHost(req), req.Method, req.URL)
+			w.Header().Set("WWW-Authenticate", `Basic realm="shorten"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -124,20 +131,20 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 		}
 		if err != nil {
 			h.logger.Printf("%s %s %s [Error checking credentials: %v]",
-				getClientHost(req), req.Method, req.URL, err)
+				h.getClientHost(req), req.Method, req.URL, err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 
 		if !ok {
 			h.logger.Printf("%s %s %s [Invalid credentials]",
-				getClientHost(req), req.Method, req.URL)
+				h.getClientHost(req), req.Method, req.URL)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 	}
 
-	clientHost := getClientHost(req)
+	clientHost := h.getClientHost(req)
 	createdBy := clientHost
 	if h.config.Auth {
 		createdBy = username

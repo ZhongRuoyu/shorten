@@ -8,4 +8,5 @@ type Config struct {
 	CodeLength int
 	SqliteDb   string
 	LogFile    string
+	TrustProxy bool
 }

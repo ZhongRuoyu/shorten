@@ -25,6 +25,8 @@ var (
 		"Path to SQLite database for URL storage")
 	logFile = flag.String("log-file", "access.log",
 		"Path to access log file")
+	trustProxy = flag.Bool("trust-proxy", false,
+		"Trust X-Forwarded-For header from reverse proxy")
 )
 
 func loadConfig() *shortener.Config {
@@ -50,6 +52,7 @@ func loadConfig() *shortener.Config {
 		CodeLength: *codeLength,
 		SqliteDb:   *sqliteDb,
 		LogFile:    *logFile,
+		TrustProxy: *trustProxy,
 	}
 }
 
