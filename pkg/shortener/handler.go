@@ -124,16 +124,10 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 		apiKey := strings.TrimPrefix(authHeader, "Bearer ")
 		var err error
 		username, err = h.db.CheckApiKey(apiKey)
-		if err == ErrNotFound {
+		if err != nil {
 			h.logger.Printf("%s %s %s [Invalid credentials]",
 				h.getClientHost(req), req.Method, req.URL)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if err != nil {
-			h.logger.Printf("%s %s %s [Error checking credentials: %v]",
-				h.getClientHost(req), req.Method, req.URL, err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
 			return
 		}
 	}
