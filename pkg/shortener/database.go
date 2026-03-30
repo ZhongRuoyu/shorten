@@ -2,7 +2,6 @@ package shortener
 
 import (
 	"database/sql"
-	"encoding/base64"
 	"errors"
 
 	"github.com/mattn/go-sqlite3"
@@ -27,10 +26,11 @@ func NewDatabase(dataSource string) (*Database, error) {
 
 func (d *Database) Init() error {
 	_, err := d.db.Exec(`
+			PRAGMA foreign_keys = ON;
+
 			CREATE TABLE IF NOT EXISTS Users(
-				username      TEXT PRIMARY KEY,
-				salt          TEXT NOT NULL,
-				password_hash TEXT NOT NULL
+				username TEXT PRIMARY KEY,
+				active   INTEGER NOT NULL
 			);
 
 			CREATE TABLE IF NOT EXISTS Urls(
@@ -41,28 +41,26 @@ func (d *Database) Init() error {
 				hits       INTEGER NOT NULL,
 				last_hit   INTEGER
 			);
+
+			CREATE TABLE IF NOT EXISTS ApiKeys(
+				key_hash TEXT PRIMARY KEY,
+				username TEXT NOT NULL,
+				active   INTEGER NOT NULL,
+				FOREIGN KEY(username) REFERENCES Users(username)
+			);
 		`)
 	return err
 }
 
-func (d *Database) CreateUser(username, password string) error {
-	salt, passwordHash, err := hashPassword(password)
-	if err != nil {
-		return err
-	}
-
-	saltBase64 := base64.StdEncoding.EncodeToString(salt)
-	passwordHashBase64 := base64.StdEncoding.EncodeToString(passwordHash)
-	_, err = d.db.Exec(`
-			INSERT INTO Users(username, salt, password_hash)
-			VALUES (?, ?, ?);
-		`, username, saltBase64, passwordHashBase64)
+func (d *Database) CreateUser(username string) error {
+	_, err := d.db.Exec(`
+			INSERT INTO Users(username, active)
+			VALUES (?, 1);
+		`, username)
 	if err != nil {
 		sqliteErr, ok := err.(sqlite3.Error)
-		if ok {
-			if sqliteErr.Code == sqlite3.ErrConstraint {
-				return ErrUsernameAlreadyInUse
-			}
+		if ok && sqliteErr.Code == sqlite3.ErrConstraint {
+			return ErrUsernameAlreadyInUse
 		}
 		return err
 	}
@@ -70,71 +68,180 @@ func (d *Database) CreateUser(username, password string) error {
 	return nil
 }
 
-func (d *Database) CheckCredentials(username, password string) (bool, error) {
-	var saltBase64, passwordHashBase64 string
-
-	err := d.db.QueryRow(`
-			SELECT salt, password_hash
+func (d *Database) ListUsers() ([]string, error) {
+	rows, err := d.db.Query(`
+			SELECT username
 			FROM Users
-			WHERE username = ?;
-		`, username).Scan(&saltBase64, &passwordHashBase64)
+			WHERE active = 1;
+		`)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return false, ErrNotFound
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []string
+	for rows.Next() {
+		var username string
+		if err := rows.Scan(&username); err != nil {
+			return nil, err
 		}
-		return false, err
+		users = append(users, username)
 	}
-
-	salt, err := base64.StdEncoding.DecodeString(saltBase64)
-	if err != nil {
-		return false, err
-	}
-	passwordHash, err := base64.StdEncoding.DecodeString(passwordHashBase64)
-	if err != nil {
-		return false, err
-	}
-
-	ok, err := checkPasswordHash(password, salt, passwordHash)
-	if err != nil {
-		return false, err
-	}
-
-	return ok, nil
-}
-
-func (d *Database) UpdateCredentials(username, password string) error {
-	salt, passwordHash, err := hashPassword(password)
-	if err != nil {
-		return err
-	}
-
-	saltBase64 := base64.StdEncoding.EncodeToString(salt)
-	passwordHashBase64 := base64.StdEncoding.EncodeToString(passwordHash)
-	_, err = d.db.Exec(`
-			UPDATE Users
-			SET salt = ?, password_hash = ?
-			WHERE username = ?;
-		`, saltBase64, passwordHashBase64, username)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrNotFound
-		}
-		return err
-	}
-
-	return nil
+	return users, rows.Err()
 }
 
 func (d *Database) DeleteUser(username string) error {
 	_, err := d.db.Exec(`
-			DELETE FROM Users
+			UPDATE ApiKeys
+			SET active = 0
 			WHERE username = ?;
 		`, username)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return ErrNotFound
-		}
 		return err
+	}
+
+	result, err := d.db.Exec(`
+			UPDATE Users
+			SET active = 0
+			WHERE username = ?
+			  AND active = 1;
+		`, username)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+
+	return nil
+}
+
+func (d *Database) CreateApiKey(username string) (string, error) {
+	var active int
+	err := d.db.QueryRow(`
+			SELECT active
+			FROM Users
+			WHERE username = ?
+			  AND active = 1;
+		`, username).Scan(&active)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+
+	for range 3 {
+		key, err := GenerateApiKey()
+		if err != nil {
+			return "", err
+		}
+
+		keyHash, err := HashApiKey(key)
+		if err != nil {
+			return "", err
+		}
+		_, err = d.db.Exec(`
+				INSERT INTO ApiKeys(key_hash, username, active)
+				VALUES (?, ?, 1);
+			`, keyHash, username)
+		if err != nil {
+			sqliteErr, ok := err.(sqlite3.Error)
+			if ok && sqliteErr.Code == sqlite3.ErrConstraint {
+				continue
+			}
+			return "", err
+		}
+
+		return key, nil
+	}
+
+	return "", errors.New("database: could not generate API key")
+}
+
+func (d *Database) CheckApiKey(key string) (string, error) {
+	keyHash, err := HashApiKey(key)
+	if err != nil {
+		return "", err
+	}
+	return d.CheckApiKeyByHash(keyHash)
+}
+
+func (d *Database) CheckApiKeyByHash(keyHash string) (string, error) {
+	var username string
+
+	err := d.db.QueryRow(`
+			SELECT ak.username
+			FROM ApiKeys ak
+			JOIN Users u
+			  ON ak.username = u.username
+			WHERE ak.key_hash = ?
+			  AND ak.active = 1
+			  AND u.active = 1;
+		`, keyHash).Scan(&username)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+
+	return username, nil
+}
+
+func (d *Database) ListApiKeys(username string) ([]string, error) {
+	rows, err := d.db.Query(`
+			SELECT key_hash
+			FROM ApiKeys
+			WHERE username = ?
+			  AND active = 1;
+		`, username)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keys []string
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		keys = append(keys, key)
+	}
+	return keys, rows.Err()
+}
+
+func (d *Database) DeleteApiKey(key string) error {
+	keyHash, err := HashApiKey(key)
+	if err != nil {
+		return err
+	}
+	return d.DeleteApiKeyByHash(keyHash)
+}
+
+func (d *Database) DeleteApiKeyByHash(keyHash string) error {
+	result, err := d.db.Exec(`
+			UPDATE ApiKeys
+			SET active = 0
+			WHERE key_hash = ?
+			  AND active = 1;
+		`, keyHash)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
 	}
 
 	return nil
@@ -174,10 +281,8 @@ func (d *Database) CreateCode(url string, code string, createdBy string) error {
 		`, code, url, createdBy)
 	if err != nil {
 		sqliteErr, ok := err.(sqlite3.Error)
-		if ok {
-			if sqliteErr.Code == sqlite3.ErrConstraint {
-				return ErrCodeAlreadyInUse
-			}
+		if ok && sqliteErr.Code == sqlite3.ErrConstraint {
+			return ErrCodeAlreadyInUse
 		}
 		return err
 	}

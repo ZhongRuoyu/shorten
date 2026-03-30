@@ -113,33 +113,27 @@ func (h *handler) CreateCodeHandler(w http.ResponseWriter, req *http.Request) {
 
 	var username string
 	if h.config.Auth {
-		var password string
-		var ok bool
-		username, password, ok = req.BasicAuth()
-		if !ok {
+		authHeader := req.Header.Get("Authorization")
+		if !strings.HasPrefix(authHeader, "Bearer ") {
 			h.logger.Printf("%s %s %s [Missing credentials]",
 				h.getClientHost(req), req.Method, req.URL)
-			w.Header().Set("WWW-Authenticate", `Basic realm="shorten"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		ok, err := h.db.CheckCredentials(username, password)
+		apiKey := strings.TrimPrefix(authHeader, "Bearer ")
+		var err error
+		username, err = h.db.CheckApiKey(apiKey)
 		if err == ErrNotFound {
-			ok = false
-			err = nil
+			h.logger.Printf("%s %s %s [Invalid credentials]",
+				h.getClientHost(req), req.Method, req.URL)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
 		}
 		if err != nil {
 			h.logger.Printf("%s %s %s [Error checking credentials: %v]",
 				h.getClientHost(req), req.Method, req.URL, err)
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
-			return
-		}
-
-		if !ok {
-			h.logger.Printf("%s %s %s [Invalid credentials]",
-				h.getClientHost(req), req.Method, req.URL)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 	}
