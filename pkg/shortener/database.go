@@ -3,11 +3,13 @@ package shortener
 import (
 	"database/sql"
 	"errors"
+	"sync"
 
 	"github.com/mattn/go-sqlite3"
 )
 
 type Database struct {
+	mu sync.Mutex
 	db *sql.DB
 }
 
@@ -25,6 +27,9 @@ func NewDatabase(dataSource string) (*Database, error) {
 }
 
 func (d *Database) Init() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 			PRAGMA foreign_keys = ON;
 
@@ -53,6 +58,9 @@ func (d *Database) Init() error {
 }
 
 func (d *Database) CreateUser(username string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 			INSERT INTO Users(username, active)
 			VALUES (?, 1);
@@ -69,6 +77,9 @@ func (d *Database) CreateUser(username string) error {
 }
 
 func (d *Database) ListUsers() ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	rows, err := d.db.Query(`
 			SELECT username
 			FROM Users
@@ -91,6 +102,9 @@ func (d *Database) ListUsers() ([]string, error) {
 }
 
 func (d *Database) DeleteUser(username string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 			UPDATE ApiKeys
 			SET active = 0
@@ -122,6 +136,9 @@ func (d *Database) DeleteUser(username string) error {
 }
 
 func (d *Database) CreateApiKey(username string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var active int
 	err := d.db.QueryRow(`
 			SELECT active
@@ -169,10 +186,21 @@ func (d *Database) CheckApiKey(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return d.CheckApiKeyByHash(keyHash)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.checkApiKeyByHash(keyHash)
 }
 
 func (d *Database) CheckApiKeyByHash(keyHash string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.checkApiKeyByHash(keyHash)
+}
+
+func (d *Database) checkApiKeyByHash(keyHash string) (string, error) {
 	var username string
 
 	err := d.db.QueryRow(`
@@ -195,6 +223,9 @@ func (d *Database) CheckApiKeyByHash(keyHash string) (string, error) {
 }
 
 func (d *Database) ListApiKeys(username string) ([]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	rows, err := d.db.Query(`
 			SELECT key_hash
 			FROM ApiKeys
@@ -222,10 +253,21 @@ func (d *Database) DeleteApiKey(key string) error {
 	if err != nil {
 		return err
 	}
-	return d.DeleteApiKeyByHash(keyHash)
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.deleteApiKeyByHash(keyHash)
 }
 
 func (d *Database) DeleteApiKeyByHash(keyHash string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.deleteApiKeyByHash(keyHash)
+}
+
+func (d *Database) deleteApiKeyByHash(keyHash string) error {
 	result, err := d.db.Exec(`
 			UPDATE ApiKeys
 			SET active = 0
@@ -248,6 +290,9 @@ func (d *Database) DeleteApiKeyByHash(keyHash string) error {
 }
 
 func (d *Database) GetUrl(code string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	var url string
 
 	err := d.db.QueryRow(`
@@ -275,6 +320,9 @@ func (d *Database) GetUrl(code string) (string, error) {
 }
 
 func (d *Database) CreateCode(url string, code string, createdBy string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	_, err := d.db.Exec(`
 			INSERT INTO Urls(code, url, created_at, created_by, hits, last_hit)
 			VALUES (?, ?, UNIXEPOCH(), ?, 0, NULL);
